@@ -58,7 +58,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 	private static final String SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
 	private static final int SPECIAL_ATTACK_PROJECTILE_ID = 1260;
 	private static final int DANGEROUS_TILE_RADIUS = 1;
-	private static final int EXPLOSION_DELAY_TICKS = 5;
+	private static final int EXPLOSION_DELAY_TICKS = 0;
 
 	@Inject
 	private Client client;
@@ -130,13 +130,14 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		LocalPoint targetLocal = projectile.getTarget();
-		if (targetLocal == null)
-		{
-			return;
-		}
+//		LocalPoint targetLocal = projectile.getTarget();
+//		if (targetLocal == null)
+//		{
+//			return;
+//		}
 
-		WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
+//		WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
+		WorldPoint worldTarget = projectile.getTargetPoint();
 		if (worldTarget == null)
 		{
 			return;
@@ -146,10 +147,10 @@ public class CrazyArchaeologistPlugin extends Plugin
 
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
 		int newClearTick = client.getTickCount() + ticksUntilClear;
-		log.debug("Ticks until clear: {}, newClearTick: {}, Game Tick: {}", ticksUntilClear, newClearTick, client.getTickCount());
 
 		if (clearTilesAtTick < 0 || newClearTick > clearTilesAtTick)
 		{
+			log.info("Ticks until clear: {}, newClearTick: {}, Game Tick: {}", ticksUntilClear, newClearTick, client.getTickCount());
 			clearTilesAtTick = newClearTick;
 		}
 	}
