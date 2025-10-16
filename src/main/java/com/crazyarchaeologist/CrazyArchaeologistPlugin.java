@@ -3,8 +3,12 @@ package com.crazyarchaeologist;
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.AnimationChanged;
+import net.runelite.api.events.GameTick;
 import net.runelite.api.events.OverheadTextChanged;
+import net.runelite.api.events.ProjectileMoved;
 import net.runelite.client.Notifier;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -12,14 +16,19 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.HotkeyListener;
 
 import javax.inject.Inject;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @PluginDescriptor(
 		name = "Crazy Archaeologist Helper",
-		description = "Alerts you when Crazy Archaeologist uses his special attack",
+		description = "Alerts you when Crazy Archaeologist uses his special attack and shows where projectiles will land",
 		tags = {"boss", "pvm", "wilderness", "archaeologist", "crazy"}
 )
 public class CrazyArchaeologistPlugin extends Plugin {
@@ -42,11 +51,20 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	@Inject
 	private KeyManager keyManager;
 
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private CrazyArchaeologistOverlay overlay;
+
+	// Track active projectiles and their landing spots
+	private final Map<Projectile, WorldPoint> activeProjectiles = new HashMap<>();
+	private final List<TileDanger> dangerousTiles = new ArrayList<>();
+
 	private final HotkeyListener hotkeyListener = new HotkeyListener(() -> config.testHotkey()) {
 		@Override
 		public void hotkeyPressed() {
 			log.info("Manual trigger activated!");
-			// Use clientThread to ensure we're on the correct thread
 			clientThread.invoke(() -> handleSpecialAttack());
 		}
 	};
@@ -60,12 +78,16 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	protected void startUp() throws Exception {
 		log.info("Crazy Archaeologist Helper started!");
 		keyManager.registerKeyListener(hotkeyListener);
+		overlayManager.add(overlay);
 	}
 
 	@Override
 	protected void shutDown() throws Exception {
 		log.info("Crazy Archaeologist Helper stopped!");
 		keyManager.unregisterKeyListener(hotkeyListener);
+		overlayManager.remove(overlay);
+		activeProjectiles.clear();
+		dangerousTiles.clear();
 	}
 
 	@Subscribe
@@ -77,11 +99,9 @@ public class CrazyArchaeologistPlugin extends Plugin {
 		NPC npc = (NPC) event.getActor();
 		String overheadText = event.getOverheadText();
 
-		// Check if this is the Crazy Archaeologist
 		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
 			log.info("Crazy Archaeologist said: '{}'", overheadText);
 
-			// Check if the overhead text contains the special attack phrase
 			if (overheadText != null && overheadText.contains(SPECIAL_ATTACK_TEXT)) {
 				log.info("Special attack detected via overhead text!");
 				handleSpecialAttack();
@@ -90,22 +110,134 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	}
 
 	@Subscribe
-	public void onAnimationChanged(AnimationChanged event) {
-		if (!(event.getActor() instanceof NPC)) {
-			return;
-		}
+	public void onProjectileMoved(ProjectileMoved event) {
+		Projectile projectile = event.getProjectile();
 
-		NPC npc = (NPC) event.getActor();
+		// Log all projectile information to find the right IDs
+		if (projectile.getId() > 0) {
+			Actor interacting = projectile.getInteracting();
 
-		// Check if this is the Crazy Archaeologist
-		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
-			int animation = npc.getAnimation();
+			// Check if this projectile might be from Crazy Archaeologist
+			if (interacting instanceof NPC) {
+				NPC npc = (NPC) interacting;
+				if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
+					logProjectileInfo(projectile, "FROM Crazy Archaeologist");
+				}
+			}
 
-			// Log all animations for debugging
-			if (animation != -1) {
-				log.info("Crazy Archaeologist animation changed to: {}", animation);
+			// Also log projectiles with no clear source (might be the special attack)
+			if (interacting == null) {
+				// Calculate distance from player to see if it's relevant
+				LocalPoint projectilePoint = new LocalPoint(
+						projectile.getX1(), projectile.getY1()
+				);
+				Player player = client.getLocalPlayer();
+				if (player != null) {
+					int distance = projectilePoint.distanceTo(player.getLocalLocation());
+					if (distance < 2000) { // Only log nearby projectiles
+						logProjectileInfo(projectile, "NO SOURCE (possible special)");
+					}
+				}
+			}
+
+			// Calculate where this projectile will land
+			if (!activeProjectiles.containsKey(projectile)) {
+				WorldPoint landingPoint = calculateLandingPoint(projectile);
+				if (landingPoint != null) {
+					activeProjectiles.put(projectile, landingPoint);
+					log.info("Tracked new projectile landing at: {}", landingPoint);
+				}
 			}
 		}
+	}
+
+	@Subscribe
+	public void onGameTick(GameTick event) {
+		// Clean up expired projectiles and update dangerous tiles
+		List<Projectile> toRemove = new ArrayList<>();
+
+		for (Map.Entry<Projectile, WorldPoint> entry : activeProjectiles.entrySet()) {
+			Projectile proj = entry.getKey();
+
+			// Check if projectile is finished
+			if (proj.getRemainingCycles() <= 0) {
+				toRemove.add(proj);
+
+				// Add danger tiles when projectile lands (3x3 area)
+				WorldPoint center = entry.getValue();
+				int duration = 5; // Ticks the tiles stay dangerous after impact
+
+				for (int dx = -1; dx <= 1; dx++) {
+					for (int dy = -1; dy <= 1; dy++) {
+						WorldPoint dangerPoint = new WorldPoint(
+								center.getX() + dx,
+								center.getY() + dy,
+								center.getPlane()
+						);
+						dangerousTiles.add(new TileDanger(dangerPoint, duration));
+					}
+				}
+			}
+		}
+
+		toRemove.forEach(activeProjectiles::remove);
+
+		// Update dangerous tile timers
+		dangerousTiles.removeIf(tile -> {
+			tile.ticksRemaining--;
+			return tile.ticksRemaining <= 0;
+		});
+	}
+
+//	@Subscribe
+//	public void onAnimationChanged(AnimationChanged event) {
+//		if (!(event.getActor() instanceof NPC)) {
+//			return;
+//		}
+//
+//		NPC npc = (NPC) event.getActor();
+//
+//		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
+//			int animation = npc.getAnimation();
+//
+//			if (animation != -1) {
+//				log.info("Crazy Archaeologist animation changed to: {}", animation);
+//			}
+//		}
+//	}
+
+	private void logProjectileInfo(Projectile projectile, String context) {
+		log.info("=== PROJECTILE {} ===", context);
+		log.info("  ID: {}", projectile.getId());
+		log.info("  Start: ({}, {})", projectile.getX1(), projectile.getY1());
+		log.info("  End: ({}, {})", projectile.getX(), projectile.getY());
+		log.info("  Start Height: {}", projectile.getStartHeight());
+		log.info("  End Height: {}", projectile.getEndHeight());
+		log.info("  Start Cycle: {}", projectile.getStartCycle());
+		log.info("  End Cycle: {}", projectile.getEndCycle());
+		log.info("  Remaining Cycles: {}", projectile.getRemainingCycles());
+		log.info("  Slope: {}", projectile.getSlope());
+		log.info("  Floor: {}", projectile.getFloor());
+
+		Actor interacting = projectile.getInteracting();
+		if (interacting != null) {
+			log.info("  Interacting: {} ({})",
+					interacting.getName(),
+					interacting instanceof NPC ? ((NPC) interacting).getId() : "Player");
+		} else {
+			log.info("  Interacting: null");
+		}
+	}
+
+	private WorldPoint calculateLandingPoint(Projectile projectile) {
+		LocalPoint startPoint = new LocalPoint(projectile.getX1(), projectile.getY1());
+
+		// The target location is given by getX() and getY()
+		LocalPoint endPoint = new LocalPoint((int) projectile.getX(), (int) projectile.getY());
+
+		WorldPoint worldEnd = WorldPoint.fromLocal(client, endPoint);
+
+		return worldEnd;
 	}
 
 	private void handleSpecialAttack() {
@@ -144,6 +276,26 @@ public class CrazyArchaeologistPlugin extends Plugin {
 			} catch (Exception e) {
 				log.error("Error adding game message", e);
 			}
+		}
+	}
+
+	// Getters for overlay
+	public Map<Projectile, WorldPoint> getActiveProjectiles() {
+		return activeProjectiles;
+	}
+
+	public List<TileDanger> getDangerousTiles() {
+		return dangerousTiles;
+	}
+
+	// Inner class to track dangerous tiles
+	public static class TileDanger {
+		public final WorldPoint location;
+		public int ticksRemaining;
+
+		public TileDanger(WorldPoint location, int ticksRemaining) {
+			this.location = location;
+			this.ticksRemaining = ticksRemaining;
 		}
 	}
 }
