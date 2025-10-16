@@ -54,28 +54,18 @@ public interface CrazyArchaeologistConfig extends Config {
 
 	@ConfigSection(
 			name = "Overlay Settings",
-			description = "Configure tile marking and overlays",
+			description = "Configure tile marking",
 			position = 10
 	)
 	String overlaySection = "overlay";
 
 	@ConfigItem(
 			keyName = "showOverlay",
-			name = "Show Overlay",
-			description = "Show dangerous tile markers",
+			name = "Show Tile Markers",
+			description = "Mark dangerous tiles where projectiles will land",
 			section = overlaySection
 	)
 	default boolean showOverlay() {
-		return true;
-	}
-
-	@ConfigItem(
-			keyName = "showProjectilePaths",
-			name = "Show Projectile Paths",
-			description = "Draw lines from projectiles to their targets",
-			section = overlaySection
-	)
-	default boolean showProjectilePaths() {
 		return true;
 	}
 
@@ -91,26 +81,6 @@ public interface CrazyArchaeologistConfig extends Config {
 	)
 	default int tileAlpha() {
 		return 100;
-	}
-
-	@ConfigItem(
-			keyName = "logProjectiles",
-			name = "Log Projectiles",
-			description = "Log all projectile information to help identify special attack projectiles",
-			section = overlaySection
-	)
-	default boolean logProjectiles() {
-		return true;
-	}
-
-	@ConfigItem(
-			keyName = "showDebugInfo",
-			name = "Show Debug Info",
-			description = "Show debug panel with projectile information",
-			section = overlaySection
-	)
-	default boolean showDebugInfo() {
-		return true;
 	}
 
 	enum SoundEffect {
