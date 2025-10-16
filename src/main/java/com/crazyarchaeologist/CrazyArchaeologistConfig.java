@@ -5,38 +5,32 @@ import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 
 @ConfigGroup("crazyarchaeologist")
-public interface CrazyArchaeologistConfig extends Config
-{
+public interface CrazyArchaeologistConfig extends Config {
+
 	@ConfigItem(
-			keyName = "enableNotification",
-			name = "Enable Notification",
-			description = "Enables Windows notification when special attack is used",
-			position = 1
+			keyName = "useSound",
+			name = "Play Sound",
+			description = "Play a sound when special attack is detected"
 	)
-	default boolean enableNotification()
-	{
+	default boolean useSound() {
 		return true;
 	}
 
 	@ConfigItem(
-			keyName = "enableSound",
-			name = "Enable Sound",
-			description = "Plays a sound when special attack is used",
-			position = 2
+			keyName = "useNotification",
+			name = "System Notification",
+			description = "Send a system notification when special attack is detected"
 	)
-	default boolean enableSound()
-	{
+	default boolean useNotification() {
 		return true;
 	}
 
 	@ConfigItem(
-			keyName = "useAnimationDetection",
-			name = "Use Animation Detection",
-			description = "Detect special attack by animation instead of chat message (more reliable but may need animation ID verification)",
-			position = 3
+			keyName = "useGameMessage",
+			name = "Game Message",
+			description = "Display a message in the game chat when special attack is detected"
 	)
-	default boolean useAnimationDetection()
-	{
-		return false;
+	default boolean useGameMessage() {
+		return true;
 	}
 }
