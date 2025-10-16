@@ -1,46 +1,67 @@
+/*
+ * Copyright (c) 2025, YourName <youremail@example.com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 package com.crazyarchaeologist;
 
 import com.google.inject.Provides;
+import java.util.HashSet;
+import java.util.Set;
+import javax.inject.Inject;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.*;
+import net.runelite.api.ChatMessageType;
+import net.runelite.api.Client;
+import net.runelite.api.NPC;
+import net.runelite.api.Projectile;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.OverheadTextChanged;
 import net.runelite.api.events.ProjectileMoved;
 import net.runelite.client.Notifier;
-import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.util.HotkeyListener;
-
-import javax.inject.Inject;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
 
 @Slf4j
 @PluginDescriptor(
-		name = "Crazy Archaeologist Helper",
-		description = "Alerts you when Crazy Archaeologist uses his special attack",
-		tags = {"boss", "pvm", "wilderness", "archaeologist", "crazy"}
+		name = "Crazy Archaeologist",
+		description = "Alerts and highlights dangerous tiles during Crazy Archaeologist's special attack",
+		tags = {"boss", "pvm", "wilderness", "combat", "overlay"}
 )
-public class CrazyArchaeologistPlugin extends Plugin {
-
+public class CrazyArchaeologistPlugin extends Plugin
+{
 	private static final int CRAZY_ARCHAEOLOGIST_ID = 6618;
 	private static final String SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
 	private static final int SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+	private static final int DANGEROUS_TILE_RADIUS = 1;
+	private static final int EXPLOSION_DELAY_TICKS = 5;
 
 	@Inject
 	private Client client;
-
-	@Inject
-	private ClientThread clientThread;
 
 	@Inject
 	private Notifier notifier;
@@ -49,124 +70,130 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	private CrazyArchaeologistConfig config;
 
 	@Inject
-	private KeyManager keyManager;
-
-	@Inject
 	private OverlayManager overlayManager;
 
+	@Inject
 	private CrazyArchaeologistOverlay overlay;
 
-	// Track dangerous tiles and when to clear them
+	@Getter
 	private final Set<WorldPoint> dangerousTiles = new HashSet<>();
+
 	private int clearTilesAtTick = -1;
 
-	private final HotkeyListener hotkeyListener = new HotkeyListener(() -> config.testHotkey()) {
-		@Override
-		public void hotkeyPressed() {
-			log.info("Manual trigger activated!");
-			clientThread.invoke(() -> handleSpecialAttack());
-		}
-	};
-
 	@Provides
-	CrazyArchaeologistConfig provideConfig(ConfigManager configManager) {
+	CrazyArchaeologistConfig provideConfig(ConfigManager configManager)
+	{
 		return configManager.getConfig(CrazyArchaeologistConfig.class);
 	}
 
 	@Override
-	protected void startUp() throws Exception {
-		log.info("Crazy Archaeologist Helper started!");
-		keyManager.registerKeyListener(hotkeyListener);
-		overlay = new CrazyArchaeologistOverlay(this, config, client);
+	protected void startUp() throws Exception
+	{
 		overlayManager.add(overlay);
 	}
 
 	@Override
-	protected void shutDown() throws Exception {
-		log.info("Crazy Archaeologist Helper stopped!");
-		keyManager.unregisterKeyListener(hotkeyListener);
+	protected void shutDown() throws Exception
+	{
 		overlayManager.remove(overlay);
 		dangerousTiles.clear();
+		clearTilesAtTick = -1;
 	}
 
 	@Subscribe
-	public void onOverheadTextChanged(OverheadTextChanged event) {
-		if (!(event.getActor() instanceof NPC)) {
+	public void onOverheadTextChanged(OverheadTextChanged event)
+	{
+		if (!(event.getActor() instanceof NPC))
+		{
 			return;
 		}
 
 		NPC npc = (NPC) event.getActor();
+		if (npc.getId() != CRAZY_ARCHAEOLOGIST_ID)
+		{
+			return;
+		}
+
 		String overheadText = event.getOverheadText();
-
-		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
-			if (overheadText != null && overheadText.contains(SPECIAL_ATTACK_TEXT)) {
-				log.info("Special attack detected!");
-				handleSpecialAttack();
-			}
+		if (overheadText != null && overheadText.contains(SPECIAL_ATTACK_TEXT))
+		{
+			handleSpecialAttack();
 		}
 	}
 
 	@Subscribe
-	public void onProjectileMoved(ProjectileMoved event) {
+	public void onProjectileMoved(ProjectileMoved event)
+	{
 		Projectile projectile = event.getProjectile();
+		if (projectile.getId() != SPECIAL_ATTACK_PROJECTILE_ID)
+		{
+			return;
+		}
 
-		if (projectile.getId() == SPECIAL_ATTACK_PROJECTILE_ID) {
-			LocalPoint targetLocal = projectile.getTarget();
-			if (targetLocal != null) {
-				WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
-				if (worldTarget != null) {
-					log.info("Special attack projectile landing at: {}", worldTarget);
+		LocalPoint targetLocal = projectile.getTarget();
+		if (targetLocal == null)
+		{
+			return;
+		}
 
-					// Add 3x3 area as dangerous
-					addDangerousTiles(worldTarget, 1);
+		WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
+		if (worldTarget == null)
+		{
+			return;
+		}
 
-					// Set when to clear tiles (after projectile lands + explosion time)
-					// Projectile has 79 cycles, convert to ticks (1 cycle = 1 tick typically)
-					clearTilesAtTick = client.getTickCount() + projectile.getRemainingCycles() / 30;
-				}
-			}
+		addDangerousTiles(worldTarget);
+
+		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
+		int newClearTick = client.getTickCount() + ticksUntilClear;
+
+		if (clearTilesAtTick < 0 || newClearTick > clearTilesAtTick)
+		{
+			clearTilesAtTick = newClearTick;
 		}
 	}
 
 	@Subscribe
-	public void onGameTick(GameTick event) {
-		// Clear dangerous tiles after they've exploded
-		if (clearTilesAtTick > 0 && client.getTickCount() >= clearTilesAtTick) {
+	public void onGameTick(GameTick event)
+	{
+		if (clearTilesAtTick > 0 && client.getTickCount() >= clearTilesAtTick)
+		{
 			dangerousTiles.clear();
 			clearTilesAtTick = -1;
-			log.info("Cleared dangerous tiles");
 		}
 	}
 
-	private void addDangerousTiles(WorldPoint center, int radius) {
-		for (int dx = -radius; dx <= radius; dx++) {
-			for (int dy = -radius; dy <= radius; dy++) {
+	private void addDangerousTiles(WorldPoint center)
+	{
+		for (int dx = -DANGEROUS_TILE_RADIUS; dx <= DANGEROUS_TILE_RADIUS; dx++)
+		{
+			for (int dy = -DANGEROUS_TILE_RADIUS; dy <= DANGEROUS_TILE_RADIUS; dy++)
+			{
 				dangerousTiles.add(center.dx(dx).dy(dy));
 			}
 		}
-		log.info("Added {} dangerous tiles around {}", (radius * 2 + 1) * (radius * 2 + 1), center);
 	}
 
-	private void handleSpecialAttack() {
-		if (config.useSound()) {
+	private void handleSpecialAttack()
+	{
+		if (config.playSoundEffect())
+		{
 			client.playSoundEffect(config.soundEffect().getId());
 		}
 
-		if (config.useNotification()) {
-			notifier.notify("Crazy Archaeologist: Special Attack Incoming!");
+		if (config.sendNotification())
+		{
+			notifier.notify("Crazy Archaeologist special attack incoming!");
 		}
 
-		if (config.useGameMessage()) {
+		if (config.showChatMessage())
+		{
 			client.addChatMessage(
 					ChatMessageType.GAMEMESSAGE,
 					"",
-					"<col=ff0000>Crazy Archaeologist Special Attack!</col>",
+					"Crazy Archaeologist special attack!",
 					null
 			);
 		}
-	}
-
-	public Set<WorldPoint> getDangerousTiles() {
-		return dangerousTiles;
 	}
 }
