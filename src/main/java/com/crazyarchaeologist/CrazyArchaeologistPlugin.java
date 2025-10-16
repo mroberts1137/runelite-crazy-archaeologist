@@ -4,10 +4,9 @@ import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.AnimationChanged;
-import net.runelite.api.events.NpcSpawned;
-import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.OverheadTextChanged;
 import net.runelite.client.Notifier;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.input.KeyManager;
@@ -16,8 +15,6 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.util.HotkeyListener;
 
 import javax.inject.Inject;
-import java.util.HashMap;
-import java.util.Map;
 
 @Slf4j
 @PluginDescriptor(
@@ -34,6 +31,9 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	private Client client;
 
 	@Inject
+	private ClientThread clientThread;
+
+	@Inject
 	private Notifier notifier;
 
 	@Inject
@@ -42,13 +42,12 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	@Inject
 	private KeyManager keyManager;
 
-	private final Map<Integer, NPC> crazyArchaeologists = new HashMap<>();
-
 	private final HotkeyListener hotkeyListener = new HotkeyListener(() -> config.testHotkey()) {
 		@Override
 		public void hotkeyPressed() {
 			log.info("Manual trigger activated!");
-			handleSpecialAttack();
+			// Use clientThread to ensure we're on the correct thread
+			clientThread.invoke(() -> handleSpecialAttack());
 		}
 	};
 
@@ -67,25 +66,6 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	protected void shutDown() throws Exception {
 		log.info("Crazy Archaeologist Helper stopped!");
 		keyManager.unregisterKeyListener(hotkeyListener);
-		crazyArchaeologists.clear();
-	}
-
-	@Subscribe
-	public void onNpcSpawned(NpcSpawned event) {
-		NPC npc = event.getNpc();
-		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
-			crazyArchaeologists.put(npc.getIndex(), npc);
-			log.info("Crazy Archaeologist spawned! Index: {}, Name: {}", npc.getIndex(), npc.getName());
-		}
-	}
-
-	@Subscribe
-	public void onNpcDespawned(NpcDespawned event) {
-		NPC npc = event.getNpc();
-		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
-			crazyArchaeologists.remove(npc.getIndex());
-			log.info("Crazy Archaeologist despawned! Index: {}", npc.getIndex());
-		}
 	}
 
 	@Subscribe
@@ -97,11 +77,8 @@ public class CrazyArchaeologistPlugin extends Plugin {
 		NPC npc = (NPC) event.getActor();
 		String overheadText = event.getOverheadText();
 
-		log.info("NPC overhead text changed - NPC ID: {}, Name: {}, Text: '{}'",
-				npc.getId(), npc.getName(), overheadText);
-
-		// Check if this is a Crazy Archaeologist
-		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID || crazyArchaeologists.containsKey(npc.getIndex())) {
+		// Check if this is the Crazy Archaeologist
+		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
 			log.info("Crazy Archaeologist said: '{}'", overheadText);
 
 			// Check if the overhead text contains the special attack phrase
@@ -120,8 +97,8 @@ public class CrazyArchaeologistPlugin extends Plugin {
 
 		NPC npc = (NPC) event.getActor();
 
-		// Check if this is a Crazy Archaeologist
-		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID || crazyArchaeologists.containsKey(npc.getIndex())) {
+		// Check if this is the Crazy Archaeologist
+		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
 			int animation = npc.getAnimation();
 
 			// Log all animations for debugging
@@ -135,23 +112,38 @@ public class CrazyArchaeologistPlugin extends Plugin {
 		log.info("handleSpecialAttack() called!");
 
 		if (config.useSound()) {
-			log.info("Playing sound effect...");
-			client.playSoundEffect(SoundEffectID.UI_BOOP);
+			log.info("Playing sound effect ID: {}", config.soundEffect().getId());
+			try {
+				client.playSoundEffect(config.soundEffect().getId());
+				log.info("Sound effect played successfully");
+			} catch (Exception e) {
+				log.error("Error playing sound effect", e);
+			}
 		}
 
 		if (config.useNotification()) {
 			log.info("Sending notification...");
-			notifier.notify("Crazy Archaeologist: Special Attack Incoming!");
+			try {
+				notifier.notify("Crazy Archaeologist: Special Attack Incoming!");
+				log.info("Notification sent successfully");
+			} catch (Exception e) {
+				log.error("Error sending notification", e);
+			}
 		}
 
 		if (config.useGameMessage()) {
 			log.info("Adding game message...");
-			client.addChatMessage(
-					ChatMessageType.GAMEMESSAGE,
-					"",
-					"<col=ff0000>Crazy Archaeologist Special Attack!</col>",
-					null
-			);
+			try {
+				client.addChatMessage(
+						ChatMessageType.GAMEMESSAGE,
+						"",
+						"<col=ff0000>Crazy Archaeologist Special Attack!</col>",
+						null
+				);
+				log.info("Game message added successfully");
+			} catch (Exception e) {
+				log.error("Error adding game message", e);
+			}
 		}
 	}
 }
