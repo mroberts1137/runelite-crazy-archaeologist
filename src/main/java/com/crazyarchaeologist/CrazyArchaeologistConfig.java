@@ -3,9 +3,21 @@ package com.crazyarchaeologist;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Keybind;
+
+import java.awt.event.KeyEvent;
 
 @ConfigGroup("crazyarchaeologist")
 public interface CrazyArchaeologistConfig extends Config {
+
+	@ConfigItem(
+			keyName = "testHotkey",
+			name = "Manual Test Trigger",
+			description = "Press this key to manually test the alert (for debugging)"
+	)
+	default Keybind testHotkey() {
+		return new Keybind(KeyEvent.VK_F8, 0);
+	}
 
 	@ConfigItem(
 			keyName = "useSound",
