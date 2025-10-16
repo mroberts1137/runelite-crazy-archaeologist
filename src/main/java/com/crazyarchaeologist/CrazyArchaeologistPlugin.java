@@ -3,8 +3,11 @@ package com.crazyarchaeologist;
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.events.NpcDespawned;
 import net.runelite.client.Notifier;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -13,7 +16,8 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.util.Text;
 
 import javax.inject.Inject;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 @Slf4j
 @PluginDescriptor(
@@ -25,7 +29,7 @@ public class CrazyArchaeologistPlugin extends Plugin {
 
 	private static final int CRAZY_ARCHAEOLOGIST_ID = 6619;
 	private static final String SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
-	private static final int SEARCH_RADIUS = 15; // tiles
+	private static final int SPECIAL_ATTACK_ANIMATION = 1162; // You may need to verify this animation ID
 
 	@Inject
 	private Client client;
@@ -36,7 +40,7 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	@Inject
 	private CrazyArchaeologistConfig config;
 
-	private boolean nearBoss = false;
+	private final Map<Integer, NPC> crazyArchaeologists = new HashMap<>();
 
 	@Provides
 	CrazyArchaeologistConfig provideConfig(ConfigManager configManager) {
@@ -51,27 +55,54 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	@Override
 	protected void shutDown() throws Exception {
 		log.info("Crazy Archaeologist Helper stopped!");
-		nearBoss = false;
+		crazyArchaeologists.clear();
 	}
 
 	@Subscribe
-	public void onGameTick(GameTick event) {
-		if (client.getGameState() != GameState.LOGGED_IN) {
+	public void onNpcSpawned(NpcSpawned event) {
+		NPC npc = event.getNpc();
+		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
+			crazyArchaeologists.put(npc.getIndex(), npc);
+			log.debug("Crazy Archaeologist spawned at index: {}", npc.getIndex());
+		}
+	}
+
+	@Subscribe
+	public void onNpcDespawned(NpcDespawned event) {
+		NPC npc = event.getNpc();
+		if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
+			crazyArchaeologists.remove(npc.getIndex());
+			log.debug("Crazy Archaeologist despawned at index: {}", npc.getIndex());
+		}
+	}
+
+	@Subscribe
+	public void onAnimationChanged(AnimationChanged event) {
+		if (!(event.getActor() instanceof NPC)) {
 			return;
 		}
 
-		Player player = client.getLocalPlayer();
-		if (player == null) {
-			return;
-		}
+		NPC npc = (NPC) event.getActor();
 
-		// Check if Crazy Archaeologist is nearby
-		nearBoss = isNearCrazyArchaeologist(player);
+		// Check if this is a Crazy Archaeologist
+		if (crazyArchaeologists.containsKey(npc.getIndex())) {
+			int animation = npc.getAnimation();
+
+			// Log all animations for debugging (remove this in production)
+			if (animation != -1) {
+				log.debug("Crazy Archaeologist animation: {}", animation);
+			}
+
+			// Check for special attack animation
+			if (animation == SPECIAL_ATTACK_ANIMATION) {
+				handleSpecialAttack();
+			}
+		}
 	}
 
 	@Subscribe
 	public void onChatMessage(ChatMessage event) {
-		if (!nearBoss || event.getType() != ChatMessageType.PUBLICCHAT) {
+		if (event.getType() != ChatMessageType.PUBLICCHAT || crazyArchaeologists.isEmpty()) {
 			return;
 		}
 
@@ -81,21 +112,6 @@ public class CrazyArchaeologistPlugin extends Plugin {
 		if (message.contains(SPECIAL_ATTACK_TEXT)) {
 			handleSpecialAttack();
 		}
-	}
-
-	private boolean isNearCrazyArchaeologist(Player player) {
-		List<NPC> npcs = client.getNpcs();
-
-		for (NPC npc : npcs) {
-			if (npc.getId() == CRAZY_ARCHAEOLOGIST_ID) {
-				int distance = npc.getWorldLocation().distanceTo(player.getWorldLocation());
-				if (distance <= SEARCH_RADIUS) {
-					return true;
-				}
-			}
-		}
-
-		return false;
 	}
 
 	private void handleSpecialAttack() {
