@@ -19,13 +19,15 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.HotkeyListener;
 
 import javax.inject.Inject;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 @Slf4j
 @PluginDescriptor(
 		name = "Crazy Archaeologist Helper",
-		description = "Alerts you when Crazy Archaeologist uses his special attack and marks dangerous tiles",
+		description = "Alerts you when Crazy Archaeologist uses his special attack",
 		tags = {"boss", "pvm", "wilderness", "archaeologist", "crazy"}
 )
 public class CrazyArchaeologistPlugin extends Plugin {
@@ -33,7 +35,6 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	private static final int CRAZY_ARCHAEOLOGIST_ID = 6618;
 	private static final String SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
 	private static final int SPECIAL_ATTACK_PROJECTILE_ID = 1260;
-	private static final int DANGER_TILE_DURATION_TICKS = 6; // Adjust based on testing
 
 	@Inject
 	private Client client;
@@ -55,8 +56,9 @@ public class CrazyArchaeologistPlugin extends Plugin {
 
 	private CrazyArchaeologistOverlay overlay;
 
+	// Track dangerous tiles and when to clear them
 	private final Set<WorldPoint> dangerousTiles = new HashSet<>();
-	private int dangerTilesExpireTick = 0;
+	private int clearTilesAtTick = -1;
 
 	private final HotkeyListener hotkeyListener = new HotkeyListener(() -> config.testHotkey()) {
 		@Override
@@ -108,75 +110,59 @@ public class CrazyArchaeologistPlugin extends Plugin {
 	public void onProjectileMoved(ProjectileMoved event) {
 		Projectile projectile = event.getProjectile();
 
-		// Only track the special attack projectiles
 		if (projectile.getId() == SPECIAL_ATTACK_PROJECTILE_ID) {
-			LocalPoint target = projectile.getTarget();
-			LocalPoint targetLocal = new LocalPoint(target.getX(), target.getY());
-			WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
+			LocalPoint targetLocal = projectile.getTarget();
+			if (targetLocal != null) {
+				WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
+				if (worldTarget != null) {
+					log.info("Special attack projectile landing at: {}", worldTarget);
 
-			if (worldTarget != null) {
-				log.info("Special attack projectile landing at: {}", worldTarget);
+					// Add 3x3 area as dangerous
+					addDangerousTiles(worldTarget, 1);
 
-				// Add 3x3 area as dangerous (1 tile radius from center)
-				addDangerousTiles(worldTarget, 1);
-
-				// Set expiration for dangerous tiles
-				int remainingCycles = projectile.getRemainingCycles();
-				int estimatedLandingTick = client.getTickCount() + (remainingCycles / 30); // 30 client cycles per game tick
-				dangerTilesExpireTick = Math.max(dangerTilesExpireTick, estimatedLandingTick + DANGER_TILE_DURATION_TICKS);
+					// Set when to clear tiles (after projectile lands + explosion time)
+					// Projectile has 79 cycles, convert to ticks (1 cycle = 1 tick typically)
+					clearTilesAtTick = client.getTickCount() + projectile.getRemainingCycles() / 30;
+				}
 			}
 		}
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick event) {
-		// Clear dangerous tiles after they expire
-		if (client.getTickCount() >= dangerTilesExpireTick && !dangerousTiles.isEmpty()) {
-			log.info("Clearing dangerous tiles");
+		// Clear dangerous tiles after they've exploded
+		if (clearTilesAtTick > 0 && client.getTickCount() >= clearTilesAtTick) {
 			dangerousTiles.clear();
+			clearTilesAtTick = -1;
+			log.info("Cleared dangerous tiles");
 		}
 	}
 
 	private void addDangerousTiles(WorldPoint center, int radius) {
 		for (int dx = -radius; dx <= radius; dx++) {
 			for (int dy = -radius; dy <= radius; dy++) {
-				WorldPoint tile = center.dx(dx).dy(dy);
-				dangerousTiles.add(tile);
-				log.info("Added dangerous tile: {}", tile);
+				dangerousTiles.add(center.dx(dx).dy(dy));
 			}
 		}
+		log.info("Added {} dangerous tiles around {}", (radius * 2 + 1) * (radius * 2 + 1), center);
 	}
 
 	private void handleSpecialAttack() {
-		log.info("handleSpecialAttack() called!");
-
 		if (config.useSound()) {
-			try {
-				client.playSoundEffect(config.soundEffect().getId());
-			} catch (Exception e) {
-				log.error("Error playing sound effect", e);
-			}
+			client.playSoundEffect(config.soundEffect().getId());
 		}
 
 		if (config.useNotification()) {
-			try {
-				notifier.notify("Crazy Archaeologist: Special Attack Incoming!");
-			} catch (Exception e) {
-				log.error("Error sending notification", e);
-			}
+			notifier.notify("Crazy Archaeologist: Special Attack Incoming!");
 		}
 
 		if (config.useGameMessage()) {
-			try {
-				client.addChatMessage(
-						ChatMessageType.GAMEMESSAGE,
-						"",
-						"<col=ff0000>Crazy Archaeologist Special Attack!</col>",
-						null
-				);
-			} catch (Exception e) {
-				log.error("Error adding game message", e);
-			}
+			client.addChatMessage(
+					ChatMessageType.GAMEMESSAGE,
+					"",
+					"<col=ff0000>Crazy Archaeologist Special Attack!</col>",
+					null
+			);
 		}
 	}
 

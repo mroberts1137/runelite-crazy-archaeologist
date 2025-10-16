@@ -52,18 +52,10 @@ public interface CrazyArchaeologistConfig extends Config {
 		return true;
 	}
 
-	@ConfigSection(
-			name = "Overlay Settings",
-			description = "Configure tile marking",
-			position = 10
-	)
-	String overlaySection = "overlay";
-
 	@ConfigItem(
 			keyName = "showOverlay",
 			name = "Show Tile Markers",
-			description = "Mark dangerous tiles where projectiles will land",
-			section = overlaySection
+			description = "Show dangerous tile markers where projectiles will land"
 	)
 	default boolean showOverlay() {
 		return true;
@@ -76,8 +68,7 @@ public interface CrazyArchaeologistConfig extends Config {
 	@ConfigItem(
 			keyName = "tileAlpha",
 			name = "Tile Transparency",
-			description = "Alpha value for dangerous tile highlighting (0-255)",
-			section = overlaySection
+			description = "Alpha value for dangerous tile highlighting (0-255)"
 	)
 	default int tileAlpha() {
 		return 100;

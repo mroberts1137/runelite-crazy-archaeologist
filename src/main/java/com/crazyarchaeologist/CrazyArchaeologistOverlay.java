@@ -48,12 +48,10 @@ public class CrazyArchaeologistOverlay extends Overlay {
                 continue;
             }
 
-            // Fill tile with red transparent color
             Color fillColor = new Color(255, 0, 0, config.tileAlpha());
             graphics.setColor(fillColor);
             graphics.fillPolygon(poly);
 
-            // Draw red border
             graphics.setColor(Color.RED);
             graphics.setStroke(new BasicStroke(2));
             graphics.drawPolygon(poly);
