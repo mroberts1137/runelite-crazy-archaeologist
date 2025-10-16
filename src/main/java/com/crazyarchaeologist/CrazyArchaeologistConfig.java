@@ -25,6 +25,8 @@
 package com.crazyarchaeologist;
 
 import java.awt.Color;
+
+import lombok.Getter;
 import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
@@ -153,17 +155,13 @@ public interface CrazyArchaeologistConfig extends Config
 		UI_BOOP("UI boop", 3930);
 
 		private final String name;
+		@Getter
 		private final int id;
 
 		SoundEffect(String name, int id)
 		{
 			this.name = name;
 			this.id = id;
-		}
-
-		public int getId()
-		{
-			return id;
 		}
 
 		@Override

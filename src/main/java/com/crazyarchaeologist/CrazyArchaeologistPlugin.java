@@ -146,6 +146,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
 		int newClearTick = client.getTickCount() + ticksUntilClear;
+		log.debug("Ticks until clear: {}, newClearTick: {}, Game Tick: {}", ticksUntilClear, newClearTick, client.getTickCount());
 
 		if (clearTilesAtTick < 0 || newClearTick > clearTilesAtTick)
 		{
