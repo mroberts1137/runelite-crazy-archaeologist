@@ -59,17 +59,19 @@ public class CrazyArchaeologistPlugin extends Plugin
 	private static final int CRAZY_ARCHAEOLOGIST_ID = 6618;
 	private static final String CRAZY_SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
 	private static final int CRAZY_SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+	private static final int CRAZY_EXPLOSION_RADIUS = 1;
 
 	// Deranged Archaeologist (Fossil Island)
 	private static final int DERANGED_ARCHAEOLOGIST_ID = 7806;
 	private static final String DERANGED_SPECIAL_ATTACK_TEXT = "Learn to Read!";
 	private static final int DERANGED_SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+	private static final int DERANGED_EXPLOSION_RADIUS = 1;
 
 	// Chaos Fanatic (Wilderness)
 	private static final int CHAOS_FANATIC_ID = 6619;
-	private static final int CHAOS_FANATIC_PROJECTILE_ID  = 551;
+	private static final int CHAOS_FANATIC_PROJECTILE_ID = 551;
+	private static final int CHAOS_FANATIC_EXPLOSION_RADIUS = 0;
 
-	private static final int DANGEROUS_TILE_RADIUS = 1;
 	private static final int EXPLOSION_DELAY_TICKS = 0;
 
 	@Inject
@@ -144,9 +146,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 		// Check if it's one of our tracked archaeologists (Chaos Fanatic doesn't use overhead text)
 		boolean isCrazy = npc.getId() == CRAZY_ARCHAEOLOGIST_ID;
 		boolean isDeranged = npc.getId() == DERANGED_ARCHAEOLOGIST_ID;
-		boolean isFanatic = npc.getId() == CHAOS_FANATIC_ID;
 
-		if (!isCrazy && !isDeranged && !isFanatic)
+		if (!isCrazy && !isDeranged)
 		{
 			return;
 		}
@@ -157,10 +158,6 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 		if (isDeranged && !config.trackDerangedArchaeologist())
-		{
-			return;
-		}
-		if (isFanatic && !config.trackChaosFanatic())
 		{
 			return;
 		}
@@ -195,6 +192,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		Projectile projectile = event.getProjectile();
 
+		// check the npc that fired projectile
+
 		// Log all projectiles when debug logging is enabled
 		if (config.enableDebugLogging())
 		{
@@ -205,26 +204,36 @@ public class CrazyArchaeologistPlugin extends Plugin
 					target != null ? target.toString() : "null");
 		}
 
-		// Check if it's one of our tracked projectiles
-		boolean isCrazyProjectile = projectile.getId() == CRAZY_SPECIAL_ATTACK_PROJECTILE_ID;
-		boolean isDerangedProjectile = projectile.getId() == DERANGED_SPECIAL_ATTACK_PROJECTILE_ID;
-		boolean isChaosFanaticProjectile = projectile.getId() == CHAOS_FANATIC_PROJECTILE_ID;
+		// Check if it's one of our tracked projectiles and get the explosion radius
+		int explosionRadius = -1;
+		String bossType = "";
 
-		if (!isCrazyProjectile && !isDerangedProjectile && !isChaosFanaticProjectile)
+		if (projectile.getId() == CRAZY_SPECIAL_ATTACK_PROJECTILE_ID && config.trackCrazyArchaeologist())
 		{
-			return;
+			explosionRadius = CRAZY_EXPLOSION_RADIUS;
+			bossType = "Crazy Archaeologist";
+		}
+		else if (projectile.getId() == DERANGED_SPECIAL_ATTACK_PROJECTILE_ID && config.trackDerangedArchaeologist())
+		{
+			explosionRadius = DERANGED_EXPLOSION_RADIUS;
+			bossType = "Deranged Archaeologist";
+		}
+		else if (projectile.getId() == CHAOS_FANATIC_PROJECTILE_ID && config.trackChaosFanatic())
+		{
+			explosionRadius = CHAOS_FANATIC_EXPLOSION_RADIUS;
+			bossType = "Chaos Fanatic";
+
+			// Alert on first Chaos Fanatic projectile detection
+			if (!chaosFanaticAlertSent)
+			{
+				log.info("Chaos Fanatic special attack detected!");
+				handleSpecialAttack("Chaos Fanatic");
+				chaosFanaticAlertSent = true;
+			}
 		}
 
-		// Check if the corresponding boss is enabled
-		if (isCrazyProjectile && !config.trackCrazyArchaeologist())
-		{
-			return;
-		}
-		if (isDerangedProjectile && !config.trackDerangedArchaeologist())
-		{
-			return;
-		}
-		if (isChaosFanaticProjectile && !config.trackChaosFanatic())
+		// If we didn't match any projectile, return
+		if (explosionRadius == -1)
 		{
 			return;
 		}
@@ -235,24 +244,15 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		// For Chaos Fanatic, alert on first projectile detection
-		if (isChaosFanaticProjectile && !chaosFanaticAlertSent)
-		{
-			log.info("Chaos Fanatic special attack detected!");
-			handleSpecialAttack("Chaos Fanatic");
-			chaosFanaticAlertSent = true;
-		}
-
 		// Calculate when this specific projectile's tiles should clear
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
 		int clearTick = client.getTickCount() + ticksUntilClear;
 
-		String bossType = isCrazyProjectile ? "Crazy" : (isDerangedProjectile ? "Deranged" : "Chaos Fanatic");
-		log.info("{} projectile (ID: {}) targeting {} will clear at tick {} (current: {}, remaining: {})",
-				bossType, projectile.getId(), worldTarget, clearTick, client.getTickCount(), ticksUntilClear);
+		log.info("{} projectile (ID: {}) targeting {} with radius {} will clear at tick {} (current: {}, remaining: {})",
+				bossType, projectile.getId(), worldTarget, explosionRadius, clearTick, client.getTickCount(), ticksUntilClear);
 
-		// Add all tiles in the 3x3 area around the target
-		addDangerousTiles(worldTarget, clearTick);
+		// Add dangerous tiles with the appropriate explosion radius
+		addDangerousTiles(worldTarget, clearTick, explosionRadius);
 	}
 
 	@Subscribe
@@ -284,14 +284,18 @@ public class CrazyArchaeologistPlugin extends Plugin
 	}
 
 	/**
-	 * Adds a 3x3 area of dangerous tiles centered on the given point.
-	 * If a tile is already marked with an earlier clear time, updates it to the later time.
+	 * Adds dangerous tiles in an area around the given center point.
+	 * The area size is determined by the explosion radius.
+	 *
+	 * @param center The center point of the explosion
+	 * @param clearTick The game tick at which these tiles should be cleared
+	 * @param explosionRadius The radius of the explosion (0 = single tile, 1 = 3x3, 2 = 5x5, etc.)
 	 */
-	private void addDangerousTiles(WorldPoint center, int clearTick)
+	private void addDangerousTiles(WorldPoint center, int clearTick, int explosionRadius)
 	{
-		for (int dx = -DANGEROUS_TILE_RADIUS; dx <= DANGEROUS_TILE_RADIUS; dx++)
+		for (int dx = -explosionRadius; dx <= explosionRadius; dx++)
 		{
-			for (int dy = -DANGEROUS_TILE_RADIUS; dy <= DANGEROUS_TILE_RADIUS; dy++)
+			for (int dy = -explosionRadius; dy <= explosionRadius; dy++)
 			{
 				WorldPoint tile = center.dx(dx).dy(dy);
 
