@@ -130,13 +130,6 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-//		LocalPoint targetLocal = projectile.getTarget();
-//		if (targetLocal == null)
-//		{
-//			return;
-//		}
-
-//		WorldPoint worldTarget = WorldPoint.fromLocal(client, targetLocal);
 		WorldPoint worldTarget = projectile.getTargetPoint();
 		if (worldTarget == null)
 		{
