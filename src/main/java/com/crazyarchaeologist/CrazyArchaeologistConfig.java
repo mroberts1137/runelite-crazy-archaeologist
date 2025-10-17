@@ -25,7 +25,6 @@
 package com.crazyarchaeologist;
 
 import java.awt.Color;
-
 import lombok.Getter;
 import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
@@ -57,16 +56,9 @@ public interface CrazyArchaeologistConfig extends Config
 	)
 	String overlaySection = "overlay";
 
-	@ConfigSection(
-			name = "Debug",
-			description = "Debug settings",
-			position = 3
-	)
-	String debugSection = "debug";
-
 	@ConfigItem(
 			keyName = "trackCrazyArchaeologist",
-			name = "Track Crazy Archaeologist",
+			name = "Crazy Archaeologist",
 			description = "Enable tracking for Crazy Archaeologist (Wilderness)",
 			section = bossSection,
 			position = 0
@@ -78,7 +70,7 @@ public interface CrazyArchaeologistConfig extends Config
 
 	@ConfigItem(
 			keyName = "trackDerangedArchaeologist",
-			name = "Track Deranged Archaeologist",
+			name = "Deranged Archaeologist",
 			description = "Enable tracking for Deranged Archaeologist (Fossil Island)",
 			section = bossSection,
 			position = 1
@@ -90,7 +82,7 @@ public interface CrazyArchaeologistConfig extends Config
 
 	@ConfigItem(
 			keyName = "trackChaosFanatic",
-			name = "Track Chaos Fanatic",
+			name = "Chaos Fanatic",
 			description = "Enable tracking for Chaos Fanatic (Wilderness)",
 			section = bossSection,
 			position = 2
@@ -133,7 +125,7 @@ public interface CrazyArchaeologistConfig extends Config
 	)
 	default boolean sendNotification()
 	{
-		return true;
+		return false;
 	}
 
 	@ConfigItem(
@@ -195,18 +187,6 @@ public interface CrazyArchaeologistConfig extends Config
 	default int tileBorderWidth()
 	{
 		return 2;
-	}
-
-	@ConfigItem(
-			keyName = "enableDebugLogging",
-			name = "Enable Debug Logging",
-			description = "Enable debug logging to help identify NPC IDs, projectile IDs, and overhead text. Check the RuneLite logs.",
-			section = debugSection,
-			position = 0
-	)
-	default boolean enableDebugLogging()
-	{
-		return false;
 	}
 
 	enum SoundEffect
