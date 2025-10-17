@@ -67,7 +67,7 @@ public interface CrazyArchaeologistConfig extends Config
 	@ConfigItem(
 			keyName = "trackCrazyArchaeologist",
 			name = "Track Crazy Archaeologist",
-			description = "Enable tracking for Crazy Archaeologist",
+			description = "Enable tracking for Crazy Archaeologist (Wilderness)",
 			section = bossSection,
 			position = 0
 	)
@@ -79,11 +79,23 @@ public interface CrazyArchaeologistConfig extends Config
 	@ConfigItem(
 			keyName = "trackDerangedArchaeologist",
 			name = "Track Deranged Archaeologist",
-			description = "Enable tracking for Deranged Archaeologist",
+			description = "Enable tracking for Deranged Archaeologist (Fossil Island)",
 			section = bossSection,
 			position = 1
 	)
 	default boolean trackDerangedArchaeologist()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+			keyName = "trackChaosFanatic",
+			name = "Track Chaos Fanatic",
+			description = "Enable tracking for Chaos Fanatic (Wilderness)",
+			section = bossSection,
+			position = 2
+	)
+	default boolean trackChaosFanatic()
 	{
 		return true;
 	}

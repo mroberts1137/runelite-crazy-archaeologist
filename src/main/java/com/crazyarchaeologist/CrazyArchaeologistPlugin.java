@@ -35,6 +35,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.NPC;
 import net.runelite.api.Projectile;
+import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.OverheadTextChanged;
@@ -49,8 +50,8 @@ import net.runelite.client.ui.overlay.OverlayManager;
 @Slf4j
 @PluginDescriptor(
 		name = "Crazy Archaeologist",
-		description = "Alerts and highlights dangerous tiles during Crazy/Deranged Archaeologist's special attack",
-		tags = {"boss", "pvm", "wilderness", "combat", "overlay", "crazy archaeologist", "deranged archaeologist"}
+		description = "Alerts and highlights dangerous tiles during Crazy/Deranged Archaeologist and Chaos Fanatic special attacks",
+		tags = {"boss", "pvm", "wilderness", "combat", "overlay", "crazy archaeologist", "deranged archaeologist", "chaos fanatic"}
 )
 public class CrazyArchaeologistPlugin extends Plugin
 {
@@ -61,8 +62,12 @@ public class CrazyArchaeologistPlugin extends Plugin
 
 	// Deranged Archaeologist (Fossil Island)
 	private static final int DERANGED_ARCHAEOLOGIST_ID = 7806;
-	private static final String DERANGED_SPECIAL_ATTACK_TEXT = "Learn to read!";
+	private static final String DERANGED_SPECIAL_ATTACK_TEXT = "Learn to Read!";
 	private static final int DERANGED_SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+
+	// Chaos Fanatic (Wilderness)
+	private static final int CHAOS_FANATIC_ID = 6619;
+	private static final int CHAOS_FANATIC_SPECIAL_ATTACK_PROJECTILE_ID = 551;
 
 	private static final int DANGEROUS_TILE_RADIUS = 1;
 	private static final int EXPLOSION_DELAY_TICKS = 0;
@@ -85,6 +90,9 @@ public class CrazyArchaeologistPlugin extends Plugin
 	// Map each dangerous tile to its clear tick time
 	private final Map<WorldPoint, Integer> tileClearTimes = new HashMap<>();
 
+	// Track the last tick when Chaos Fanatic special was detected to avoid duplicate alerts
+	private int lastChaosFanaticSpecialTick = -1;
+
 	@Provides
 	CrazyArchaeologistConfig provideConfig(ConfigManager configManager)
 	{
@@ -103,6 +111,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		tileClearTimes.clear();
+		lastChaosFanaticSpecialTick = -1;
 		log.info("Crazy Archaeologist plugin stopped");
 	}
 
@@ -132,11 +141,12 @@ public class CrazyArchaeologistPlugin extends Plugin
 					npc.getId(), npc.getName(), overheadText);
 		}
 
-		// Check if it's one of our tracked archaeologists
+		// Check if it's one of our tracked archaeologists (Chaos Fanatic doesn't use overhead text)
 		boolean isCrazy = npc.getId() == CRAZY_ARCHAEOLOGIST_ID;
 		boolean isDeranged = npc.getId() == DERANGED_ARCHAEOLOGIST_ID;
+		boolean isFanatic = npc.getId() == CHAOS_FANATIC_ID;
 
-		if (!isCrazy && !isDeranged)
+		if (!isCrazy && !isDeranged && !isFanatic)
 		{
 			return;
 		}
@@ -147,6 +157,10 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 		if (isDeranged && !config.trackDerangedArchaeologist())
+		{
+			return;
+		}
+		if (isFanatic && !config.trackChaosFanatic())
 		{
 			return;
 		}
@@ -194,8 +208,9 @@ public class CrazyArchaeologistPlugin extends Plugin
 		// Check if it's one of our tracked projectiles
 		boolean isCrazyProjectile = projectile.getId() == CRAZY_SPECIAL_ATTACK_PROJECTILE_ID;
 		boolean isDerangedProjectile = projectile.getId() == DERANGED_SPECIAL_ATTACK_PROJECTILE_ID;
+		boolean isChaosFanaticProjectile = projectile.getId() == CHAOS_FANATIC_SPECIAL_ATTACK_PROJECTILE_ID;
 
-		if (!isCrazyProjectile && !isDerangedProjectile)
+		if (!isCrazyProjectile && !isDerangedProjectile && !isChaosFanaticProjectile)
 		{
 			return;
 		}
@@ -209,11 +224,28 @@ public class CrazyArchaeologistPlugin extends Plugin
 		{
 			return;
 		}
+		if (isChaosFanaticProjectile && !config.trackChaosFanatic())
+		{
+			return;
+		}
 
 		WorldPoint worldTarget = projectile.getTargetPoint();
 		if (worldTarget == null)
 		{
 			return;
+		}
+
+		// For Chaos Fanatic, trigger alert on first projectile detection per special attack
+		if (isChaosFanaticProjectile)
+		{
+			int currentTick = client.getTickCount();
+			// Only alert if this is a new special attack (different tick than last alert)
+			if (currentTick != lastChaosFanaticSpecialTick)
+			{
+				log.info("Chaos Fanatic special attack detected!");
+				handleSpecialAttack("Chaos Fanatic");
+				lastChaosFanaticSpecialTick = currentTick;
+			}
 		}
 
 		// Calculate when this specific projectile's tiles should clear
