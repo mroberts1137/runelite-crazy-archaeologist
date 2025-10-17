@@ -26,11 +26,10 @@ package com.crazyarchaeologist;
 
 import com.google.inject.Provides;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -57,8 +56,11 @@ import net.runelite.client.ui.overlay.OverlayManager;
 public class CrazyArchaeologistPlugin extends Plugin
 {
 	private static final int CRAZY_ARCHAEOLOGIST_ID = 6618;
-	private static final String SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
-	private static final int SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+	private static final int DERANGED_ARCHAEOLOGIST_ID = 7806;
+	private static final String CRAZY_SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
+	private static final String DERANGED_SPECIAL_ATTACK_TEXT = "Learn to read!";
+	private static final int CRAZY_PROJECTILE_ID = 1260;
+	private static final int DERANGED_PROJECTILE_ID = 1260;
 	private static final int DANGEROUS_TILE_RADIUS = 1;
 	private static final int EXPLOSION_DELAY_TICKS = 0;
 
@@ -77,14 +79,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 	@Inject
 	private CrazyArchaeologistOverlay overlay;
 
-	@Getter
-	private final Set<WorldPoint> dangerousTiles = new HashSet<>();
-
-	// Map each tile to the tick it should be cleared at
+	// Map each dangerous tile to its clear tick time
 	private final Map<WorldPoint, Integer> tileClearTimes = new HashMap<>();
-
-	// Track which projectiles we've already processed to avoid duplicates
-	private final Set<WorldPoint> trackedProjectiles = new HashSet<>();
 
 	@Provides
 	CrazyArchaeologistConfig provideConfig(ConfigManager configManager)
@@ -96,15 +92,23 @@ public class CrazyArchaeologistPlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		overlayManager.add(overlay);
+		log.info("Crazy Archaeologist plugin started - Debug logging enabled");
 	}
 
 	@Override
 	protected void shutDown() throws Exception
 	{
 		overlayManager.remove(overlay);
-		dangerousTiles.clear();
 		tileClearTimes.clear();
-		trackedProjectiles.clear();
+		log.info("Crazy Archaeologist plugin stopped");
+	}
+
+	/**
+	 * Returns the set of currently dangerous tiles for the overlay to render
+	 */
+	public Set<WorldPoint> getDangerousTiles()
+	{
+		return tileClearTimes.keySet();
 	}
 
 	@Subscribe
@@ -116,17 +120,33 @@ public class CrazyArchaeologistPlugin extends Plugin
 		}
 
 		NPC npc = (NPC) event.getActor();
-		if (npc.getId() != CRAZY_ARCHAEOLOGIST_ID)
+		String overheadText = event.getOverheadText();
+
+		// Debug logging - log all NPC overhead text with their IDs
+		if (config.debugLogging())
 		{
-			return;
+			log.info("NPC Overhead Text - ID: {}, Name: '{}', Text: '{}'",
+					npc.getId(), npc.getName(), overheadText);
 		}
 
-		String overheadText = event.getOverheadText();
-		if (overheadText != null && overheadText.contains(SPECIAL_ATTACK_TEXT))
+		// Check if this is Crazy Archaeologist
+		if (config.trackCrazyArchaeologist() && npc.getId() == CRAZY_ARCHAEOLOGIST_ID)
 		{
-			handleSpecialAttack();
-			// Clear tracked projectiles for the new special attack
-			trackedProjectiles.clear();
+			if (overheadText != null && overheadText.contains(CRAZY_SPECIAL_ATTACK_TEXT))
+			{
+				log.info("Crazy Archaeologist special attack detected!");
+				handleSpecialAttack("Crazy Archaeologist");
+			}
+		}
+
+		// Check if this is Deranged Archaeologist
+		if (config.trackDerangedArchaeologist() && npc.getId() == DERANGED_ARCHAEOLOGIST_ID)
+		{
+			if (overheadText != null && overheadText.contains(DERANGED_SPECIAL_ATTACK_TEXT))
+			{
+				log.info("Deranged Archaeologist special attack detected!");
+				handleSpecialAttack("Deranged Archaeologist");
+			}
 		}
 	}
 
@@ -134,7 +154,23 @@ public class CrazyArchaeologistPlugin extends Plugin
 	public void onProjectileMoved(ProjectileMoved event)
 	{
 		Projectile projectile = event.getProjectile();
-		if (projectile.getId() != SPECIAL_ATTACK_PROJECTILE_ID)
+
+		// Debug logging - log all projectiles
+		if (config.debugLogging())
+		{
+			WorldPoint target = projectile.getTargetPoint();
+			log.info("Projectile Moved - ID: {}, Target: {}, Remaining Cycles: {}, Start Cycle: {}, End Cycle: {}",
+					projectile.getId(),
+					target != null ? target.toString() : "null",
+					projectile.getRemainingCycles(),
+					projectile.getStartCycle(),
+					projectile.getEndCycle());
+		}
+
+		boolean isCrazyProjectile = config.trackCrazyArchaeologist() && projectile.getId() == CRAZY_PROJECTILE_ID;
+		boolean isDerangedProjectile = config.trackDerangedArchaeologist() && projectile.getId() == DERANGED_PROJECTILE_ID;
+
+		if (!isCrazyProjectile && !isDerangedProjectile)
 		{
 			return;
 		}
@@ -145,53 +181,43 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		// Only process each unique projectile target once
-		if (trackedProjectiles.contains(worldTarget))
-		{
-			return;
-		}
-		trackedProjectiles.add(worldTarget);
+		String bossName = isCrazyProjectile ? "Crazy" : "Deranged";
+		log.info("{} Archaeologist special attack projectile tracked at {}", bossName, worldTarget);
 
+		// Calculate when this specific projectile's tiles should clear
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
 		int clearTick = client.getTickCount() + ticksUntilClear;
 
-		log.info("New projectile at {}, ticks until clear: {}, clearTick: {}, currentTick: {}",
-				worldTarget, ticksUntilClear, clearTick, client.getTickCount());
+		log.debug("Projectile targeting {} will clear at tick {} (current: {}, remaining: {})",
+				worldTarget, clearTick, client.getTickCount(), ticksUntilClear);
 
-		addDangerousTilesWithTimer(worldTarget, clearTick);
+		// Add all tiles in the 3x3 area around the target
+		addDangerousTiles(worldTarget, clearTick);
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		int currentTick = client.getTickCount();
-		Set<WorldPoint> tilesToRemove = new HashSet<>();
 
-		// Check each tile to see if it should be cleared
-		for (Map.Entry<WorldPoint, Integer> entry : tileClearTimes.entrySet())
+		// Remove tiles whose clear time has passed
+		Iterator<Map.Entry<WorldPoint, Integer>> iterator = tileClearTimes.entrySet().iterator();
+		while (iterator.hasNext())
 		{
+			Map.Entry<WorldPoint, Integer> entry = iterator.next();
 			if (currentTick >= entry.getValue())
 			{
-				tilesToRemove.add(entry.getKey());
+				log.debug("Clearing tile {} at tick {}", entry.getKey(), currentTick);
+				iterator.remove();
 			}
-		}
-
-		// Remove expired tiles
-		for (WorldPoint tile : tilesToRemove)
-		{
-			dangerousTiles.remove(tile);
-			tileClearTimes.remove(tile);
-			log.info("Cleared tile {} at tick {}", tile, currentTick);
-		}
-
-		// Clean up tracked projectiles that are definitely expired
-		if (dangerousTiles.isEmpty())
-		{
-			trackedProjectiles.clear();
 		}
 	}
 
-	private void addDangerousTilesWithTimer(WorldPoint center, int clearTick)
+	/**
+	 * Adds a 3x3 area of dangerous tiles centered on the given point.
+	 * If a tile is already marked with an earlier clear time, updates it to the later time.
+	 */
+	private void addDangerousTiles(WorldPoint center, int clearTick)
 	{
 		for (int dx = -DANGEROUS_TILE_RADIUS; dx <= DANGEROUS_TILE_RADIUS; dx++)
 		{
@@ -199,26 +225,14 @@ public class CrazyArchaeologistPlugin extends Plugin
 			{
 				WorldPoint tile = center.dx(dx).dy(dy);
 
-				// If tile is already marked, only update if new clear time is later
-				if (tileClearTimes.containsKey(tile))
-				{
-					int existingClearTick = tileClearTimes.get(tile);
-					if (clearTick > existingClearTick)
-					{
-						tileClearTimes.put(tile, clearTick);
-						log.info("Updated tile {} clear time from {} to {}", tile, existingClearTick, clearTick);
-					}
-				}
-				else
-				{
-					dangerousTiles.add(tile);
-					tileClearTimes.put(tile, clearTick);
-				}
+				// If tile already exists, keep the later (maximum) clear time
+				// This ensures tiles don't clear prematurely if multiple projectiles overlap
+				tileClearTimes.merge(tile, clearTick, Math::max);
 			}
 		}
 	}
 
-	private void handleSpecialAttack()
+	private void handleSpecialAttack(String bossName)
 	{
 		if (config.playSoundEffect())
 		{
@@ -227,7 +241,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 
 		if (config.sendNotification())
 		{
-			notifier.notify("Crazy Archaeologist special attack incoming!");
+			notifier.notify(bossName + " special attack incoming!");
 		}
 
 		if (config.showChatMessage())
@@ -235,7 +249,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 			client.addChatMessage(
 					ChatMessageType.GAMEMESSAGE,
 					"",
-					"Crazy Archaeologist special attack!",
+					bossName + " special attack!",
 					null
 			);
 		}

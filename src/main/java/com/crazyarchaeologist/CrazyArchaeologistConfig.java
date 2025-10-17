@@ -37,18 +37,56 @@ import net.runelite.client.config.ConfigSection;
 public interface CrazyArchaeologistConfig extends Config
 {
 	@ConfigSection(
-			name = "Notifications",
-			description = "Alert settings for special attacks",
+			name = "Boss Selection",
+			description = "Choose which bosses to track",
 			position = 0
+	)
+	String bossSection = "bossSelection";
+
+	@ConfigSection(
+			name = "Notifications",
+			description = "Notification settings",
+			position = 1
 	)
 	String notificationSection = "notifications";
 
 	@ConfigSection(
 			name = "Overlay",
 			description = "Tile marker settings",
-			position = 1
+			position = 2
 	)
 	String overlaySection = "overlay";
+
+	@ConfigSection(
+			name = "Debug",
+			description = "Debug settings",
+			position = 3
+	)
+	String debugSection = "debug";
+
+	@ConfigItem(
+			keyName = "trackCrazyArchaeologist",
+			name = "Track Crazy Archaeologist",
+			description = "Enable tracking for Crazy Archaeologist",
+			section = bossSection,
+			position = 0
+	)
+	default boolean trackCrazyArchaeologist()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+			keyName = "trackDerangedArchaeologist",
+			name = "Track Deranged Archaeologist",
+			description = "Enable tracking for Deranged Archaeologist",
+			section = bossSection,
+			position = 1
+	)
+	default boolean trackDerangedArchaeologist()
+	{
+		return true;
+	}
 
 	@ConfigItem(
 			keyName = "playSoundEffect",
@@ -71,7 +109,7 @@ public interface CrazyArchaeologistConfig extends Config
 	)
 	default SoundEffect soundEffect()
 	{
-		return SoundEffect.GE_COIN;
+		return SoundEffect.ALERT;
 	}
 
 	@ConfigItem(
@@ -120,7 +158,7 @@ public interface CrazyArchaeologistConfig extends Config
 	)
 	default Color tileFillColor()
 	{
-		return new Color(255, 0, 0, 50);
+		return new Color(255, 0, 0, 25);
 	}
 
 	@ConfigItem(
@@ -147,12 +185,26 @@ public interface CrazyArchaeologistConfig extends Config
 		return 2;
 	}
 
+	@ConfigItem(
+			keyName = "debugLogging",
+			name = "Debug Logging",
+			description = "Enable debug logging to help identify NPC IDs, projectile IDs, and overhead text. Check the RuneLite logs.",
+			section = debugSection,
+			position = 0
+	)
+	default boolean debugLogging()
+	{
+		return false;
+	}
+
 	enum SoundEffect
 	{
+		ALERT("Alert", 4039),
+		BELL("Bell", 3672),
+		CHIME("Chime", 3930),
 		PRAYER("Prayer", 2672),
 		ALARM("Alarm", 2266),
-		GE_COIN("GE coin", 3924),
-		UI_BOOP("UI boop", 3930);
+		GE_COIN("GE coin", 3924);
 
 		private final String name;
 		@Getter
