@@ -35,7 +35,6 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.NPC;
 import net.runelite.api.Projectile;
-import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.OverheadTextChanged;
@@ -50,17 +49,21 @@ import net.runelite.client.ui.overlay.OverlayManager;
 @Slf4j
 @PluginDescriptor(
 		name = "Crazy Archaeologist",
-		description = "Alerts and highlights dangerous tiles during Crazy Archaeologist's special attack",
-		tags = {"boss", "pvm", "wilderness", "combat", "overlay"}
+		description = "Alerts and highlights dangerous tiles during Crazy/Deranged Archaeologist's special attack",
+		tags = {"boss", "pvm", "wilderness", "combat", "overlay", "crazy archaeologist", "deranged archaeologist"}
 )
 public class CrazyArchaeologistPlugin extends Plugin
 {
+	// Crazy Archaeologist (Wilderness)
 	private static final int CRAZY_ARCHAEOLOGIST_ID = 6618;
-	private static final int DERANGED_ARCHAEOLOGIST_ID = 7806;
 	private static final String CRAZY_SPECIAL_ATTACK_TEXT = "Rain of knowledge!";
+	private static final int CRAZY_SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+
+	// Deranged Archaeologist (Fossil Island)
+	private static final int DERANGED_ARCHAEOLOGIST_ID = 7806;
 	private static final String DERANGED_SPECIAL_ATTACK_TEXT = "Learn to read!";
-	private static final int CRAZY_PROJECTILE_ID = 1260;
-	private static final int DERANGED_PROJECTILE_ID = 1260;
+	private static final int DERANGED_SPECIAL_ATTACK_PROJECTILE_ID = 1260;
+
 	private static final int DANGEROUS_TILE_RADIUS = 1;
 	private static final int EXPLOSION_DELAY_TICKS = 0;
 
@@ -122,30 +125,53 @@ public class CrazyArchaeologistPlugin extends Plugin
 		NPC npc = (NPC) event.getActor();
 		String overheadText = event.getOverheadText();
 
-		// Debug logging - log all NPC overhead text with their IDs
-		if (config.debugLogging())
+		// Log all NPC overhead text for debugging
+		if (config.enableDebugLogging())
 		{
-			log.info("NPC Overhead Text - ID: {}, Name: '{}', Text: '{}'",
+			log.info("NPC Overhead Text - ID: {}, Name: {}, Text: '{}'",
 					npc.getId(), npc.getName(), overheadText);
 		}
 
-		// Check if this is Crazy Archaeologist
-		if (config.trackCrazyArchaeologist() && npc.getId() == CRAZY_ARCHAEOLOGIST_ID)
+		// Check if it's one of our tracked archaeologists
+		boolean isCrazy = npc.getId() == CRAZY_ARCHAEOLOGIST_ID;
+		boolean isDeranged = npc.getId() == DERANGED_ARCHAEOLOGIST_ID;
+
+		if (!isCrazy && !isDeranged)
 		{
-			if (overheadText != null && overheadText.contains(CRAZY_SPECIAL_ATTACK_TEXT))
-			{
-				log.info("Crazy Archaeologist special attack detected!");
-				handleSpecialAttack("Crazy Archaeologist");
-			}
+			return;
 		}
 
-		// Check if this is Deranged Archaeologist
-		if (config.trackDerangedArchaeologist() && npc.getId() == DERANGED_ARCHAEOLOGIST_ID)
+		// Check if the boss is enabled in config
+		if (isCrazy && !config.trackCrazyArchaeologist())
 		{
-			if (overheadText != null && overheadText.contains(DERANGED_SPECIAL_ATTACK_TEXT))
+			return;
+		}
+		if (isDeranged && !config.trackDerangedArchaeologist())
+		{
+			return;
+		}
+
+		// Check for special attack text
+		if (overheadText != null)
+		{
+			boolean isSpecialAttack = false;
+			String bossName = "";
+
+			if (isCrazy && overheadText.contains(CRAZY_SPECIAL_ATTACK_TEXT))
 			{
-				log.info("Deranged Archaeologist special attack detected!");
-				handleSpecialAttack("Deranged Archaeologist");
+				isSpecialAttack = true;
+				bossName = "Crazy Archaeologist";
+			}
+			else if (isDeranged && overheadText.contains(DERANGED_SPECIAL_ATTACK_TEXT))
+			{
+				isSpecialAttack = true;
+				bossName = "Deranged Archaeologist";
+			}
+
+			if (isSpecialAttack)
+			{
+				log.info("{} special attack detected!", bossName);
+				handleSpecialAttack(bossName);
 			}
 		}
 	}
@@ -155,22 +181,31 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		Projectile projectile = event.getProjectile();
 
-		// Debug logging - log all projectiles
-		if (config.debugLogging())
+		// Log all projectiles when debug logging is enabled
+		if (config.enableDebugLogging())
 		{
 			WorldPoint target = projectile.getTargetPoint();
-			log.info("Projectile Moved - ID: {}, Target: {}, Remaining Cycles: {}, Start Cycle: {}, End Cycle: {}",
+			log.info("Projectile - ID: {}, RemainingCycles: {}, Target: {}",
 					projectile.getId(),
-					target != null ? target.toString() : "null",
 					projectile.getRemainingCycles(),
-					projectile.getStartCycle(),
-					projectile.getEndCycle());
+					target != null ? target.toString() : "null");
 		}
 
-		boolean isCrazyProjectile = config.trackCrazyArchaeologist() && projectile.getId() == CRAZY_PROJECTILE_ID;
-		boolean isDerangedProjectile = config.trackDerangedArchaeologist() && projectile.getId() == DERANGED_PROJECTILE_ID;
+		// Check if it's one of our tracked projectiles
+		boolean isCrazyProjectile = projectile.getId() == CRAZY_SPECIAL_ATTACK_PROJECTILE_ID;
+		boolean isDerangedProjectile = projectile.getId() == DERANGED_SPECIAL_ATTACK_PROJECTILE_ID;
 
 		if (!isCrazyProjectile && !isDerangedProjectile)
+		{
+			return;
+		}
+
+		// Check if the corresponding boss is enabled
+		if (isCrazyProjectile && !config.trackCrazyArchaeologist())
+		{
+			return;
+		}
+		if (isDerangedProjectile && !config.trackDerangedArchaeologist())
 		{
 			return;
 		}
@@ -181,15 +216,12 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		String bossName = isCrazyProjectile ? "Crazy" : "Deranged";
-		log.info("{} Archaeologist special attack projectile tracked at {}", bossName, worldTarget);
-
 		// Calculate when this specific projectile's tiles should clear
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
 		int clearTick = client.getTickCount() + ticksUntilClear;
 
-		log.debug("Projectile targeting {} will clear at tick {} (current: {}, remaining: {})",
-				worldTarget, clearTick, client.getTickCount(), ticksUntilClear);
+		log.info("Special attack projectile (ID: {}) targeting {} will clear at tick {} (current: {}, remaining: {})",
+				projectile.getId(), worldTarget, clearTick, client.getTickCount(), ticksUntilClear);
 
 		// Add all tiles in the 3x3 area around the target
 		addDangerousTiles(worldTarget, clearTick);
@@ -207,7 +239,10 @@ public class CrazyArchaeologistPlugin extends Plugin
 			Map.Entry<WorldPoint, Integer> entry = iterator.next();
 			if (currentTick >= entry.getValue())
 			{
-				log.debug("Clearing tile {} at tick {}", entry.getKey(), currentTick);
+				if (config.enableDebugLogging())
+				{
+					log.info("Clearing tile {} at tick {}", entry.getKey(), currentTick);
+				}
 				iterator.remove();
 			}
 		}

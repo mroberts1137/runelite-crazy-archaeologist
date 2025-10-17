@@ -186,13 +186,13 @@ public interface CrazyArchaeologistConfig extends Config
 	}
 
 	@ConfigItem(
-			keyName = "debugLogging",
-			name = "Debug Logging",
+			keyName = "enableDebugLogging",
+			name = "Enable Debug Logging",
 			description = "Enable debug logging to help identify NPC IDs, projectile IDs, and overhead text. Check the RuneLite logs.",
 			section = debugSection,
 			position = 0
 	)
-	default boolean debugLogging()
+	default boolean enableDebugLogging()
 	{
 		return false;
 	}
