@@ -67,7 +67,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 
 	// Chaos Fanatic (Wilderness)
 	private static final int CHAOS_FANATIC_ID = 6619;
-	private static final int CHAOS_FANATIC_SPECIAL_ATTACK_PROJECTILE_ID = 551;
+	private static final int CHAOS_FANATIC_PROJECTILE_ID  = 551;
 
 	private static final int DANGEROUS_TILE_RADIUS = 1;
 	private static final int EXPLOSION_DELAY_TICKS = 0;
@@ -90,8 +90,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 	// Map each dangerous tile to its clear tick time
 	private final Map<WorldPoint, Integer> tileClearTimes = new HashMap<>();
 
-	// Track the last tick when Chaos Fanatic special was detected to avoid duplicate alerts
-	private int lastChaosFanaticSpecialTick = -1;
+	// Track if we've already alerted for Chaos Fanatic's current attack
+	private boolean chaosFanaticAlertSent = false;
 
 	@Provides
 	CrazyArchaeologistConfig provideConfig(ConfigManager configManager)
@@ -111,7 +111,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		tileClearTimes.clear();
-		lastChaosFanaticSpecialTick = -1;
+		chaosFanaticAlertSent = false;
 		log.info("Crazy Archaeologist plugin stopped");
 	}
 
@@ -208,7 +208,7 @@ public class CrazyArchaeologistPlugin extends Plugin
 		// Check if it's one of our tracked projectiles
 		boolean isCrazyProjectile = projectile.getId() == CRAZY_SPECIAL_ATTACK_PROJECTILE_ID;
 		boolean isDerangedProjectile = projectile.getId() == DERANGED_SPECIAL_ATTACK_PROJECTILE_ID;
-		boolean isChaosFanaticProjectile = projectile.getId() == CHAOS_FANATIC_SPECIAL_ATTACK_PROJECTILE_ID;
+		boolean isChaosFanaticProjectile = projectile.getId() == CHAOS_FANATIC_PROJECTILE_ID;
 
 		if (!isCrazyProjectile && !isDerangedProjectile && !isChaosFanaticProjectile)
 		{
@@ -235,25 +235,21 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		// For Chaos Fanatic, trigger alert on first projectile detection per special attack
-		if (isChaosFanaticProjectile)
+		// For Chaos Fanatic, alert on first projectile detection
+		if (isChaosFanaticProjectile && !chaosFanaticAlertSent)
 		{
-			int currentTick = client.getTickCount();
-			// Only alert if this is a new special attack (different tick than last alert)
-			if (currentTick != lastChaosFanaticSpecialTick)
-			{
-				log.info("Chaos Fanatic special attack detected!");
-				handleSpecialAttack("Chaos Fanatic");
-				lastChaosFanaticSpecialTick = currentTick;
-			}
+			log.info("Chaos Fanatic special attack detected!");
+			handleSpecialAttack("Chaos Fanatic");
+			chaosFanaticAlertSent = true;
 		}
 
 		// Calculate when this specific projectile's tiles should clear
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
 		int clearTick = client.getTickCount() + ticksUntilClear;
 
-		log.info("Special attack projectile (ID: {}) targeting {} will clear at tick {} (current: {}, remaining: {})",
-				projectile.getId(), worldTarget, clearTick, client.getTickCount(), ticksUntilClear);
+		String bossType = isCrazyProjectile ? "Crazy" : (isDerangedProjectile ? "Deranged" : "Chaos Fanatic");
+		log.info("{} projectile (ID: {}) targeting {} will clear at tick {} (current: {}, remaining: {})",
+				bossType, projectile.getId(), worldTarget, clearTick, client.getTickCount(), ticksUntilClear);
 
 		// Add all tiles in the 3x3 area around the target
 		addDangerousTiles(worldTarget, clearTick);
@@ -277,6 +273,13 @@ public class CrazyArchaeologistPlugin extends Plugin
 				}
 				iterator.remove();
 			}
+		}
+
+		// Reset Chaos Fanatic alert flag when all tiles are cleared
+		if (tileClearTimes.isEmpty() && chaosFanaticAlertSent)
+		{
+			chaosFanaticAlertSent = false;
+			log.info("Chaos Fanatic attack ended, ready for next alert");
 		}
 	}
 
