@@ -25,7 +25,9 @@
 package com.crazyarchaeologist;
 
 import com.google.inject.Provides;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
 import lombok.Getter;
@@ -78,7 +80,11 @@ public class CrazyArchaeologistPlugin extends Plugin
 	@Getter
 	private final Set<WorldPoint> dangerousTiles = new HashSet<>();
 
-	private int clearTilesAtTick = -1;
+	// Map each tile to the tick it should be cleared at
+	private final Map<WorldPoint, Integer> tileClearTimes = new HashMap<>();
+
+	// Track which projectiles we've already processed to avoid duplicates
+	private final Set<WorldPoint> trackedProjectiles = new HashSet<>();
 
 	@Provides
 	CrazyArchaeologistConfig provideConfig(ConfigManager configManager)
@@ -97,7 +103,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		dangerousTiles.clear();
-		clearTilesAtTick = -1;
+		tileClearTimes.clear();
+		trackedProjectiles.clear();
 	}
 
 	@Subscribe
@@ -118,6 +125,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 		if (overheadText != null && overheadText.contains(SPECIAL_ATTACK_TEXT))
 		{
 			handleSpecialAttack();
+			// Clear tracked projectiles for the new special attack
+			trackedProjectiles.clear();
 		}
 	}
 
@@ -136,35 +145,75 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		addDangerousTiles(worldTarget);
+		// Only process each unique projectile target once
+		if (trackedProjectiles.contains(worldTarget))
+		{
+			return;
+		}
+		trackedProjectiles.add(worldTarget);
 
 		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
-		int newClearTick = client.getTickCount() + ticksUntilClear;
+		int clearTick = client.getTickCount() + ticksUntilClear;
 
-		if (clearTilesAtTick < 0 || newClearTick > clearTilesAtTick)
-		{
-			log.info("Ticks until clear: {}, newClearTick: {}, Game Tick: {}", ticksUntilClear, newClearTick, client.getTickCount());
-			clearTilesAtTick = newClearTick;
-		}
+		log.info("New projectile at {}, ticks until clear: {}, clearTick: {}, currentTick: {}",
+				worldTarget, ticksUntilClear, clearTick, client.getTickCount());
+
+		addDangerousTilesWithTimer(worldTarget, clearTick);
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
-		if (clearTilesAtTick > 0 && client.getTickCount() >= clearTilesAtTick)
+		int currentTick = client.getTickCount();
+		Set<WorldPoint> tilesToRemove = new HashSet<>();
+
+		// Check each tile to see if it should be cleared
+		for (Map.Entry<WorldPoint, Integer> entry : tileClearTimes.entrySet())
 		{
-			dangerousTiles.clear();
-			clearTilesAtTick = -1;
+			if (currentTick >= entry.getValue())
+			{
+				tilesToRemove.add(entry.getKey());
+			}
+		}
+
+		// Remove expired tiles
+		for (WorldPoint tile : tilesToRemove)
+		{
+			dangerousTiles.remove(tile);
+			tileClearTimes.remove(tile);
+			log.info("Cleared tile {} at tick {}", tile, currentTick);
+		}
+
+		// Clean up tracked projectiles that are definitely expired
+		if (dangerousTiles.isEmpty())
+		{
+			trackedProjectiles.clear();
 		}
 	}
 
-	private void addDangerousTiles(WorldPoint center)
+	private void addDangerousTilesWithTimer(WorldPoint center, int clearTick)
 	{
 		for (int dx = -DANGEROUS_TILE_RADIUS; dx <= DANGEROUS_TILE_RADIUS; dx++)
 		{
 			for (int dy = -DANGEROUS_TILE_RADIUS; dy <= DANGEROUS_TILE_RADIUS; dy++)
 			{
-				dangerousTiles.add(center.dx(dx).dy(dy));
+				WorldPoint tile = center.dx(dx).dy(dy);
+
+				// If tile is already marked, only update if new clear time is later
+				if (tileClearTimes.containsKey(tile))
+				{
+					int existingClearTick = tileClearTimes.get(tile);
+					if (clearTick > existingClearTick)
+					{
+						tileClearTimes.put(tile, clearTick);
+						log.info("Updated tile {} clear time from {} to {}", tile, existingClearTick, clearTick);
+					}
+				}
+				else
+				{
+					dangerousTiles.add(tile);
+					tileClearTimes.put(tile, clearTick);
+				}
 			}
 		}
 	}
