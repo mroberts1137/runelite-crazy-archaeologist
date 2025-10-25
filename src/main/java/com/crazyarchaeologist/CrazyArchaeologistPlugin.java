@@ -26,8 +26,6 @@ package com.crazyarchaeologist;
 
 import com.google.inject.Provides;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
@@ -88,7 +86,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 	private CrazyArchaeologistOverlay overlay;
 
 	private final Map<WorldPoint, Integer> tileClearTimes = new HashMap<>();
-	private final Set<Integer> activeArchaeologists = new HashSet<>();
+	private boolean crazyArchaeologistActive = false;
+	private boolean derangedArchaeologistActive = false;
 	private boolean chaosFanaticAlertSent = false;
 
 	@Provides
@@ -108,7 +107,8 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		tileClearTimes.clear();
-		activeArchaeologists.clear();
+		crazyArchaeologistActive = false;
+		derangedArchaeologistActive = false;
 		chaosFanaticAlertSent = false;
 	}
 
@@ -123,9 +123,11 @@ public class CrazyArchaeologistPlugin extends Plugin
 		NPC npc = event.getNpc();
 		int npcId = npc.getId();
 
-		if (npcId == CRAZY_ARCHAEOLOGIST_ID || npcId == DERANGED_ARCHAEOLOGIST_ID)
+		if (npcId == CRAZY_ARCHAEOLOGIST_ID) {
+			crazyArchaeologistActive = true;
+		} else if (npcId == DERANGED_ARCHAEOLOGIST_ID)
 		{
-			activeArchaeologists.add(npc.getIndex());
+			derangedArchaeologistActive = true;
 		}
 	}
 
@@ -133,7 +135,14 @@ public class CrazyArchaeologistPlugin extends Plugin
 	public void onNpcDespawned(NpcDespawned event)
 	{
 		NPC npc = event.getNpc();
-		activeArchaeologists.remove(npc.getIndex());
+		int npcId = npc.getId();
+
+		if (npcId == CRAZY_ARCHAEOLOGIST_ID) {
+			crazyArchaeologistActive = false;
+		} else if (npcId == DERANGED_ARCHAEOLOGIST_ID)
+		{
+			derangedArchaeologistActive = false;
+		}
 	}
 
 	@Subscribe
@@ -153,22 +162,15 @@ public class CrazyArchaeologistPlugin extends Plugin
 			return;
 		}
 
-		String bossName = null;
-
 		if (npcId == CRAZY_ARCHAEOLOGIST_ID && config.trackCrazyArchaeologist()
 				&& overheadText.contains(CRAZY_SPECIAL_ATTACK_TEXT))
 		{
-			bossName = "Crazy Archaeologist";
+			handleSpecialAttack("Crazy Archaeologist");
 		}
 		else if (npcId == DERANGED_ARCHAEOLOGIST_ID && config.trackDerangedArchaeologist()
 				&& overheadText.contains(DERANGED_SPECIAL_ATTACK_TEXT))
 		{
-			bossName = "Deranged Archaeologist";
-		}
-
-		if (bossName != null)
-		{
-			handleSpecialAttack(bossName);
+			handleSpecialAttack("Deranged Archaeologist");
 		}
 	}
 
@@ -190,12 +192,18 @@ public class CrazyArchaeologistPlugin extends Plugin
 		}
 
 		int explosionRadius;
-		boolean shouldProcess = false;
+		boolean isCrazyProjectile = config.trackCrazyArchaeologist() && projectileId == ARCHAEOLOGIST_PROJECTILE_ID && crazyArchaeologistActive;
+		boolean isDerangedProjectile = config.trackDerangedArchaeologist() && projectileId == ARCHAEOLOGIST_PROJECTILE_ID && derangedArchaeologistActive;
+		boolean isChaosProjectile = config.trackChaosFanatic() && projectileId == CHAOS_FANATIC_PROJECTILE_ID;
 
-		if (projectileId == CHAOS_FANATIC_PROJECTILE_ID && config.trackChaosFanatic())
+		if (!isCrazyProjectile && !isDerangedProjectile && !isChaosProjectile)
+		{
+			return;
+		}
+
+		if (isChaosProjectile)
 		{
 			explosionRadius = CHAOS_FANATIC_EXPLOSION_RADIUS;
-			shouldProcess = true;
 
 			if (!chaosFanaticAlertSent)
 			{
@@ -203,33 +211,14 @@ public class CrazyArchaeologistPlugin extends Plugin
 				chaosFanaticAlertSent = true;
 			}
 		}
-		else if (projectileId == ARCHAEOLOGIST_PROJECTILE_ID)
-		{
-			// Check if any tracked archaeologist is active
-			boolean crazyActive = config.trackCrazyArchaeologist() && isNpcActive(CRAZY_ARCHAEOLOGIST_ID);
-			boolean derangedActive = config.trackDerangedArchaeologist() && isNpcActive(DERANGED_ARCHAEOLOGIST_ID);
-
-			if (crazyActive || derangedActive)
-			{
-				explosionRadius = CRAZY_EXPLOSION_RADIUS;
-				shouldProcess = true;
-			}
-			else
-			{
-				return;
-			}
-		}
 		else
 		{
-			return;
+			explosionRadius = CRAZY_EXPLOSION_RADIUS;
 		}
 
-		if (shouldProcess)
-		{
-			int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
-			int clearTick = client.getTickCount() + ticksUntilClear;
-			addDangerousTiles(worldTarget, clearTick, explosionRadius);
-		}
+		int ticksUntilClear = (projectile.getRemainingCycles() / 30) + EXPLOSION_DELAY_TICKS;
+		int clearTick = client.getTickCount() + ticksUntilClear;
+		addDangerousTiles(worldTarget, clearTick, explosionRadius);
 	}
 
 	@Subscribe
@@ -237,32 +226,12 @@ public class CrazyArchaeologistPlugin extends Plugin
 	{
 		int currentTick = client.getTickCount();
 
-		Iterator<Map.Entry<WorldPoint, Integer>> iterator = tileClearTimes.entrySet().iterator();
-		while (iterator.hasNext())
-		{
-			Map.Entry<WorldPoint, Integer> entry = iterator.next();
-			if (currentTick >= entry.getValue())
-			{
-				iterator.remove();
-			}
-		}
+        tileClearTimes.entrySet().removeIf(entry -> currentTick >= entry.getValue());
 
 		if (tileClearTimes.isEmpty() && chaosFanaticAlertSent)
 		{
 			chaosFanaticAlertSent = false;
 		}
-	}
-
-	private boolean isNpcActive(int npcId)
-	{
-		for (NPC npc : client.getNpcs())
-		{
-			if (npc.getId() == npcId && activeArchaeologists.contains(npc.getIndex()))
-			{
-				return true;
-			}
-		}
-		return false;
 	}
 
 	private void addDangerousTiles(WorldPoint center, int clearTick, int radius)
